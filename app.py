@@ -37,7 +37,8 @@ async def on_ready():
  
 @bot.tree.command(name="summary", description="總結此頻道最近的對話")
 @app_commands.checks.has_permissions(read_messages=True)
-async def summary(interaction: discord.Interaction):
+@app_commands.describe(message_id="指定訊息ID作為總結的結束點 (可選)")
+async def summary(interaction: discord.Interaction, message_id: str = None):
     # 檢查機器人權限
     if not interaction.channel.permissions_for(interaction.guild.me).read_message_history:
         await interaction.response.send_message("我沒有讀取訊息歷史的權限！", ephemeral=True)
@@ -47,11 +48,27 @@ async def summary(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     
     try:
-        # 獲取最近的訊息
+        # 獲取訊息
         messages = []
-        async for msg in interaction.channel.history(limit=50):  # 限制獲取50條訊息
-            # if not msg.author.bot:  # 排除機器人的訊息
-            messages.append(f"{msg.author.name}: {msg.content}")
+        
+        if message_id:
+            try:
+                target_message = await interaction.channel.fetch_message(int(message_id))
+                # 獲取到指定訊息(含)之前的歷史訊息
+                async for msg in interaction.channel.history(limit=50, before=target_message.created_at + timedelta(seconds=1)):
+                    messages.append(f"{msg.author.name}: {msg.content}")
+                # 加入指定的訊息
+                messages.append(f"{target_message.author.name}: {target_message.content}")
+            except discord.NotFound:
+                await interaction.followup.send("找不到指定的訊息，請檢查訊息ID是否正確。", ephemeral=True)
+                return
+            except ValueError:
+                await interaction.followup.send("無效的訊息ID格式，請提供有效的訊息ID。", ephemeral=True)
+                return
+        else:
+            # 原有的行為：獲取最近的訊息
+            async for msg in interaction.channel.history(limit=50):
+                messages.append(f"{msg.author.name}: {msg.content}")
         
         messages.reverse()  # 將訊息按時間順序排列
         
@@ -94,6 +111,8 @@ async def summary(interaction: discord.Interaction):
                 embed.add_field(name="使用者", value=interaction.user.name, inline=True)
                 embed.add_field(name="頻道", value=interaction.channel.name, inline=True)
                 embed.add_field(name="訊息數量", value=len(messages), inline=True)
+                if message_id:
+                    embed.add_field(name="指定訊息ID", value=message_id, inline=True)
                 await log_channel.send(embed=embed)
         except Exception as e:
             print(f"記錄發送失敗: {e}")
